@@ -1,23 +1,18 @@
 const std = @import("std");
-const warn = @import("std").debug.warn;
 
-const getline = @import("readline.zig").getline;
-
-const Allocator = @import("std").heap.c_allocator;
-
-fn READ(a: [] u8) [] u8 {
+fn READ(a: []u8) []u8 {
     return a;
 }
 
-fn EVAL(a: [] u8) [] u8 {
+fn EVAL(a: []u8) []u8 {
     return a;
 }
 
-fn PRINT(a: [] u8) [] u8 {
+fn PRINT(a: []u8) []u8 {
     return a;
 }
 
-fn rep(input: [] u8) [] u8 {
+fn rep(input: []u8) []u8 {
     var read_input = READ(input);
     var eval_input = EVAL(read_input);
     var print_input = PRINT(eval_input);
@@ -25,12 +20,18 @@ fn rep(input: [] u8) [] u8 {
 }
 
 pub fn main() !void {
-    const stdout_file = try std.io.getStdOut();
-    while(true) {
-        var line = (try getline(Allocator)) orelse break;
-        var output = rep(line);
-        try stdout_file.write(output);
-        Allocator.free(output);
-        try stdout_file.write("\n");
+    var stdin = std.io.getStdIn();
+    var stdout = std.io.getStdOut();
+    var out = std.io.bufferedWriter(stdout.writer());
+    var writer = out.writer();
+
+    var buf: [2048]u8 = undefined;
+    while (true) {
+        try writer.print("user> ", .{});
+        try out.flush();
+        var input = try stdin.reader().readUntilDelimiter(&buf, '\n');
+
+        try writer.print("{s}\n", .{rep(input)});
+        try out.flush();
     }
 }

@@ -10,7 +10,7 @@ pub fn build(b: *Builder) void {
 
     const exes = [_]*LibExeObjStep{
         b.addExecutable(.{ .name = "step0_repl", .root_source_file = .{ .path = "step0_repl.zig" }, .optimize = optimize, .target = target }),
-        // b.addExecutable(.{ .name = "step1_read_print", .root_source_file = .{ .path = "step1_read_print.zig" }, .optimize = optimize }),
+        b.addExecutable(.{ .name = "step1_read_print", .root_source_file = .{ .path = "step1_read_print.zig" }, .optimize = optimize, .target = target }),
         // b.addExecutable(.{ .name = "step2_eval", .root_source_file = .{ .path = "step2_eval.zig" }, .optimize = optimize }),
         // b.addExecutable(.{ .name = "step3_env", .root_source_file = .{ .path = "step3_env.zig" }, .optimize = optimize }),
         // b.addExecutable(.{ .name = "step4_if_fn_do", .root_source_file = .{ .path = "step4_if_fn_do.zig" }, .optimize = optimize }),

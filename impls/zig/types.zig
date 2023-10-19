@@ -27,6 +27,7 @@ pub const MalObject = struct {
     const Type = enum {
         symbol,
         list,
+        vector,
         string,
     };
     ty: Type,
@@ -41,6 +42,10 @@ pub const MalObject = struct {
 
     pub fn asListObject(self: *MalObject) *List {
         return @fieldParentPtr(List, "obj", self);
+    }
+
+    pub fn asVectorObject(self: *MalObject) *List {
+        return @fieldParentPtr(Vector, "obj", self);
     }
 
     pub const String = struct {
@@ -99,6 +104,32 @@ pub const MalObject = struct {
         }
 
         pub fn append(self: *List, value: MalValue) !void {
+            try self.values.append(value);
+        }
+    };
+
+    pub const Vector = struct {
+        obj: MalObject,
+        values: std.ArrayList(MalValue),
+
+        pub fn init(allocator: Allocator) !*Vector {
+            var arrlist = std.ArrayList(MalValue).init(allocator);
+            var list = try allocator.create(Vector);
+            list.* = .{
+                .obj = .{ .ty = .vector },
+                .values = arrlist,
+            };
+            return list;
+        }
+
+        pub fn deinit(self: *Vector, allocator: Allocator) void {
+            self.values.deinit();
+            allocator.destroy(self);
+        }
+
+        // I think Vectors are meant to be a static-sized array, wheras Lists are
+        // meant to be linked lists??
+        pub fn append(self: *Vector, value: MalValue) !void {
             try self.values.append(value);
         }
     };

@@ -5,19 +5,28 @@ const MalValue = types.MalValue;
 
 const Error = error{OutOfMemory};
 
+const ListishType = enum {
+    list,
+    vector,
+};
+
 pub fn printStr(writer: std.ArrayList(u8).Writer, value: MalValue) Error!void {
     switch (value) {
         .number => try writer.print("{d}", .{value.number}),
         .object => switch (value.object.ty) {
-            .list => try printList(writer, value),
+            .list => try printListish(writer, value, .list),
+            .vector => try printListish(writer, value, .vector),
             .string => try printString(writer, value),
             .symbol => try writer.print("{s}", .{value.object.asSymbolObject().name}),
         },
     }
 }
 
-pub fn printList(writer: std.ArrayList(u8).Writer, value: MalValue) Error!void {
-    try writer.print("(", .{});
+pub fn printListish(writer: std.ArrayList(u8).Writer, value: MalValue, ty: ListishType) Error!void {
+    switch (ty) {
+        .list => try writer.print("(", .{}),
+        .vector => try writer.print("[", .{}),
+    }
     var list = value.object.asListObject();
     for (list.values.items, 0..) |val, i| {
         if (i != 0) {
@@ -25,7 +34,10 @@ pub fn printList(writer: std.ArrayList(u8).Writer, value: MalValue) Error!void {
         }
         try printStr(writer, val);
     }
-    try writer.print(")", .{});
+    switch (ty) {
+        .list => try writer.print(")", .{}),
+        .vector => try writer.print("]", .{}),
+    }
 }
 
 pub fn printString(writer: std.ArrayList(u8).Writer, value: MalValue) Error!void {

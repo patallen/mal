@@ -2,6 +2,12 @@ const types = @import("./types.zig");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const QUASIQUOTE = "quasiquote";
+const QUOTE = "quote";
+const DEREF = "deref";
+const SPLICE_UNQUOTE = "splice-unquote";
+const UNQUOTE = "unquote";
+
 pub const Token = struct {
     pub const Type = enum {
         invalid,
@@ -35,13 +41,16 @@ pub const Tokenizer = struct {
                 self.skipWhitespace();
                 return self.nextToken();
             },
-            '(', ')', '[', ']', '{', '}' => {
+            '(', ')', '[', ']', '{', '}', '\'', '`', '@' => {
                 self.current -= 1;
                 return self.makeToken(.valid);
             },
             '~' => {
-                if (self.peekNext() == '@') self.current += 1;
-                return self.makeToken(.valid);
+                if (self.peek() == '@') {} else {
+                    self.current -= 1;
+                }
+                var token = self.makeToken(.valid);
+                return token;
             },
             '"' => return self.string(),
             ';' => return self.comment(),
@@ -101,19 +110,29 @@ pub const Tokenizer = struct {
     }
 
     fn string(self: *Self) Token {
+        var prev_escape = false;
         while (true) {
             if (self.current >= self.source.len or self.peek() == '\n') {
                 return self.makeToken(.invalid);
             }
             switch (self.peek()) {
+                '\\' => {
+                    if (prev_escape) {
+                        prev_escape = false;
+                    } else {
+                        prev_escape = true;
+                    }
+                },
                 '"' => {
-                    if (self.peekPrev() == '\\') {} else {
+                    if (!prev_escape) {
                         var tok = self.makeToken(.valid);
                         self.current += 1;
                         return tok;
                     }
                 },
-                else => {},
+                else => {
+                    prev_escape = false;
+                },
             }
             self.current += 1;
         }
@@ -186,13 +205,63 @@ const Error = error{ OutOfMemory, ReaderEOFError };
 pub fn readForm(allocator: Allocator, reader: *Reader) Error!types.MalValue {
     // std.debug.print("READING FORM {s}\n", .{reader.current.slice});
     var token = reader.current;
+    if (token.ty == .invalid) {
+        return error.ReaderEOFError;
+    }
     return switch (token.slice[0]) {
         '(' => try readList(allocator, reader),
+        '[' => try readVector(allocator, reader),
+        '`', '\'', '@', '~' => try quote(allocator, reader),
         else => try readAtom(allocator, reader),
     };
 }
+
+const MacroType = enum {
+    quasiquote,
+    quote,
+    deref,
+    splice_unquote,
+    unquote,
+
+    fn toString(self: MacroType) []const u8 {
+        return switch (self) {
+            .quasiquote => QUASIQUOTE,
+            .quote => QUOTE,
+            .deref => DEREF,
+            .splice_unquote => SPLICE_UNQUOTE,
+            .unquote => UNQUOTE,
+        };
+    }
+};
+
+fn quote(allocator: std.mem.Allocator, reader: *Reader) Error!types.MalValue {
+    var macro_type: MacroType = undefined;
+    switch (reader.current.slice[0]) {
+        '`' => macro_type = .quasiquote,
+        '\'' => macro_type = .quote,
+        '@' => macro_type = .deref,
+        '~' => {
+            if (reader.current.slice.len > 1) {
+                macro_type = .splice_unquote;
+            } else if (reader.current.slice.len == 1) {
+                macro_type = .unquote;
+            } else {
+                unreachable;
+            }
+        },
+        else => unreachable,
+    }
+    _ = reader.next().?;
+    var symbol = try types.MalObject.Symbol.init(allocator, macro_type.toString());
+    var symbol_value = types.MalValue.object(&symbol.obj);
+    var atom = try readForm(allocator, reader);
+    var list = try types.MalObject.List.init(allocator);
+    try list.append(symbol_value);
+    try list.append(atom);
+    return types.MalValue.object(&list.obj);
+}
+
 pub fn readList(allocator: Allocator, reader: *Reader) Error!types.MalValue {
-    // std.debug.print("-> LIST {s}\n", .{reader.current.slice});
     var list = try types.MalObject.List.init(allocator);
     _ = reader.next().?;
     while (reader.current.slice[0] != ')') {
@@ -203,8 +272,21 @@ pub fn readList(allocator: Allocator, reader: *Reader) Error!types.MalValue {
         try list.append(try readForm(allocator, reader));
     }
     _ = reader.next() orelse {};
-    // std.debug.print("<- LIST {s}\n", .{reader.current.slice});
     return types.MalValue.object(&list.obj);
+}
+
+pub fn readVector(allocator: Allocator, reader: *Reader) Error!types.MalValue {
+    var vector = try types.MalObject.Vector.init(allocator);
+    _ = reader.next().?;
+    while (reader.current.slice[0] != ']') {
+        if (reader.current.ty == .eof) {
+            std.debug.print("Expected ']', got EOF\n", .{});
+            return error.ReaderEOFError;
+        }
+        try vector.append(try readForm(allocator, reader));
+    }
+    _ = reader.next() orelse {};
+    return types.MalValue.object(&vector.obj);
 }
 
 pub fn readAtom(allocator: Allocator, reader: *Reader) Error!types.MalValue {

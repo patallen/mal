@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ObjStringHashMap = @import("./hashmap.zig").ObjStringHashMap;
 
 pub fn copyString(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
     return try allocator.dupe(u8, bytes);
@@ -29,6 +30,7 @@ pub const MalObject = struct {
         list,
         vector,
         string,
+        hashmap,
     };
     ty: Type,
 
@@ -48,16 +50,23 @@ pub const MalObject = struct {
         return @fieldParentPtr(Vector, "obj", self);
     }
 
+    pub fn asHashMapObject(self: *MalObject) *HashMap {
+        return @fieldParentPtr(HashMap, "obj", self);
+    }
+
     pub const String = struct {
         obj: MalObject,
         bytes: []const u8,
+        hash: u64,
+        isKeyword: bool = false,
 
         pub fn init(allocator: Allocator, bytes: []const u8) !*MalObject.String {
             var new_buf = try copyString(allocator, bytes);
-            var symbol = try allocator.create(String);
-            symbol.obj = .{ .ty = .string };
-            symbol.bytes = new_buf;
-            return symbol;
+            var string = try allocator.create(String);
+            string.obj = .{ .ty = .string };
+            string.bytes = new_buf;
+            string.hash = std.hash_map.hashString(new_buf);
+            return string;
         }
 
         pub fn deinit(self: *String, allocator: std.mem.Allocator) void {
@@ -133,11 +142,58 @@ pub const MalObject = struct {
             try self.values.append(value);
         }
     };
+
+    pub const HashMap = struct {
+        obj: MalObject,
+        data: ObjStringHashMap(MalValue),
+
+        pub fn init(allocator: Allocator) !*HashMap {
+            var data = ObjStringHashMap(MalValue).init(allocator);
+            var hm = try allocator.create(HashMap);
+            hm.* = .{
+                .obj = .{ .ty = .hashmap },
+                .data = data,
+            };
+            return hm;
+        }
+
+        pub fn deinit(self: *HashMap, allocator: Allocator) void {
+            self.data.deinit();
+            allocator.destroy(self);
+        }
+
+        pub fn put(self: *HashMap, key: *String, value: MalValue) !void {
+            try self.data.put(key, value);
+        }
+
+        pub fn get(self: *HashMap, key: *String) ?MalValue {
+            return self.data.get(key);
+        }
+    };
 };
 
 test "MalValue.number" {
     var numval = MalValue.number(100);
     try std.testing.expectEqual(numval.number, 100);
+}
+
+test "HashMap" {
+    var hm = try MalObject.HashMap.init(std.testing.allocator);
+    var key = try MalObject.String.init(std.testing.allocator, "hello");
+    defer key.deinit(std.testing.allocator);
+    defer hm.deinit(std.testing.allocator);
+
+    try hm.put(key, MalValue.number(60));
+
+    var val = hm.get(key).?;
+    try std.testing.expectEqual(val.number, 60);
+
+    var it = hm.data.iterator();
+    while (it.next()) |entry| {
+        var k = entry.key_ptr.*;
+        var v = entry.value_ptr;
+        std.debug.print("{s}: {d}\n", .{ k.bytes, v.number });
+    }
 }
 
 test "MalValue.object" {
